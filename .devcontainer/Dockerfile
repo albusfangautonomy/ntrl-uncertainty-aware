@@ -6,6 +6,8 @@ RUN pip install pickle5
 RUN pip install libigl
 RUN pip install pytorch_kinematics
 RUN pip install configargparse
+RUN pip install scipy
+RUN pip install matplotlib
 #RUN pip install pointnext
 
 
