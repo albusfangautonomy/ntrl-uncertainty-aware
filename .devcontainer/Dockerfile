@@ -1,15 +1,27 @@
-# Start from the iGibson base image or another if more appropriate
-FROM pytorch/pytorch:1.12.1-cuda11.3-cudnn8-devel
-#FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
-#RUN pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
-RUN pip install pickle5
-RUN pip install libigl
-RUN pip install pytorch_kinematics
-RUN pip install configargparse
-RUN pip install scipy
-RUN pip install matplotlib
-#RUN pip install pointnext
+# ARM64 Python 3.10 base image
+FROM --platform=linux/arm64 python:3.10-slim-bullseye
 
+# Install system dependencies for scipy, matplotlib, libigl, etc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libxrender1 \
+    libxext6 \
+    libsm6 \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install latest stable CPU-only PyTorch for ARM
+RUN pip install --no-cache-dir torch torchvision torchaudio
+
+# Install additional Python deps
+RUN pip install --no-cache-dir \
+    libigl \
+    pytorch_kinematics \
+    configargparse \
+    scipy \
+    matplotlib
 
 WORKDIR /workspace
