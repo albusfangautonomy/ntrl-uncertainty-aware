@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  ntrl-demo:
+    image: ntrl:demo
+    container_name: ntrl-demo
+    user: "${UID}:${GID}"
+    network: host
+    environment:
+      DISPLAY: "${DISPLAY}"
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../:/workspace
+      - /usr/lib/x86_64-linux-gnu/:/glu
+      - /home/n/.local:/.local
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    runtime: nvidia     # For older Docker setups
+    stdin_open: true    # -i
+    tty: true           # -t
+    restart: "no"
