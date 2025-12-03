@@ -1,5 +1,7 @@
 # visualize/world_viz.py
 import torch
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 def show_occupancy_slice(occ, z=0, title="Occupancy slice"):

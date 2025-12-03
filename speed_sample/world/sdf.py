@@ -2,47 +2,83 @@
 import torch
 import torch.nn.functional as F
 
-def compute_sdf(occ):
+def compute_sdf_bfs(occ):
     """
     occ: boolean occupancy grid (1=obstacle)
     returns: signed distance field (float), same size
     """
 
     device = occ.device
-    occ_f = occ.float()
-
-    # Distance to obstacle = distance transform on ~occ (free space)
-    # Distance inside obstacle = negative distance transform on occ
-    #
-    # We approximate EDT using repeated 3D pooling (fast and differentiable).
 
     def edt_approx(binary):
-        # binary = 1 where "seed", 0 elsewhere
-        # convolutional growth: at each step, wavefront expands by 1 voxel
-        dist = torch.full_like(binary, 1e6)
-        frontier = (binary > 0)
-        dist[frontier] = 0
+        """
+        binary: bool tensor indicating seed locations (1 = seed)
+        Returns float distance map (Manhattan-ish approx).
+        """
+        # Float tensor for distances
+        dist = torch.full(binary.shape, 1e6, dtype=torch.float32, device=device)
 
-        # BFS-like multi-iteration convolution
+        # Boolean frontier mask
+        frontier = binary.clone()
+
+        # Initialize distances of seeds
+        dist[frontier] = 0.0
+
+        # 3x3x3 kernel for BFS propagation
         kernel = torch.ones((1,1,3,3,3), device=device)
-        for step in range(100):   # enough to fill typical grid
-            expanded = F.conv3d(frontier.float().unsqueeze(0).unsqueeze(0), 
-                                kernel, padding=1)[0,0] > 0
-            update_mask = (expanded & (dist > step+1))
+
+        for step in range(200):  # enough for typical world sizes
+            # Expand frontier by 1 voxel
+            expanded = F.conv3d(
+                frontier.float().unsqueeze(0).unsqueeze(0),
+                kernel,
+                padding=1
+            )[0,0] > 0
+
+            # Update new frontier: voxels not assigned a shorter distance yet
+            update_mask = expanded & (dist > step + 1)
+
             if not update_mask.any():
                 break
-            dist[update_mask] = step+1
+
+            dist[update_mask] = float(step + 1)
             frontier = update_mask
 
         return dist
 
-    # Distance to nearest obstacle from outside
+    # Distance outside obstacles
     dist_out = edt_approx(~occ)
 
-    # Distance to nearest free region from inside
+    # Distance inside obstacles
     dist_in  = edt_approx(occ)
 
-    # Signed: outside positive, inside negative
+    # Signed SDF = outside distance minus inside distance
     sdf = dist_out - dist_in
 
-    return sdf.float()
+    return sdf
+
+import numpy as np
+from scipy import ndimage
+
+def compute_sdf(occ):
+    """
+    occ: boolean torch tensor where True = obstacle
+    Returns signed Euclidean SDF as a torch float32 tensor.
+    +dist outside obstacles
+    -dist inside obstacles
+    """
+
+    # Convert to numpy
+    occ_np = occ.cpu().numpy()
+
+    # Distance OUTSIDE obstacles (distance to nearest obstacle)
+    dist_out = ndimage.distance_transform_edt(~occ_np)
+
+    # Distance INSIDE obstacles (distance to nearest free voxel)
+    dist_in  = ndimage.distance_transform_edt(occ_np)
+
+    # Signed distance: positive outside, negative inside
+    sdf = dist_out - dist_in
+
+    # Back to torch
+    return torch.from_numpy(sdf).float().to(occ.device)

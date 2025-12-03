@@ -1,13 +1,16 @@
 # main.py
 import torch
+torch.set_printoptions(threshold=float('inf'))
 
 from world.world_gen import generate_random_world
 from world.sdf import compute_sdf
-from uncertainty.variance_models import simple_edge_uncertainty
+from uncertainty.variance_models import simple_edge_uncertainty, lidar_range_variance
 from uncertainty.effective_distance import compute_effective_distance, compute_speed_from_distance
 from visualize.heatmap import heatmap_2d
 from visualize.world_viz import show_occupancy_slice, show_3d_points
+
 DEBUG = True
+
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Using device:", device)
@@ -25,12 +28,13 @@ def main():
 
     # 2. Mean SDF (μ)
     mu = compute_sdf(occ)
-
+    print(mu)
     # 3. Uncertainty σ
-    sigma = simple_edge_uncertainty(mu, scale=5.0)
+    sigma = simple_edge_uncertainty(mu, scale=1.2, max_sigma=0.2)
+    # sigma = lidar_range_variance(mu)
 
     # 4. Effective distance
-    d_eff = compute_effective_distance(mu, sigma, lam=2.0)
+    d_eff = compute_effective_distance(mu, sigma, lam=1.2)
 
     # 5. Speed S*
     S = compute_speed_from_distance(d_eff, d_min=0.0, d_max=30.0)

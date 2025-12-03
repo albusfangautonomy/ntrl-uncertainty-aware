@@ -2,7 +2,7 @@
 import torch
 
 def generate_random_world(x_size=200, y_size=200, z_size=50, device="cpu",
-                          num_obstacles=8,
+                          num_obstacles=5,
                           min_box_size=(5, 5, 5),
                           max_box_size=(40, 40, 30)):
     """
