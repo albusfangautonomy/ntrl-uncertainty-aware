@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Launch Python in Container",
+        "type": "python",
+        "request": "launch",
+        // "program": "${workspaceFolder}/demo_py/compactor_demo_refactored_time_series.py",
+        "program": "${workspaceFolder}/speed_sample/main.py",
+        "console": "integratedTerminal"
+      }
+    ]
+  }  
