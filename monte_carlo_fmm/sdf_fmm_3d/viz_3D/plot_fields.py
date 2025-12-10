@@ -43,34 +43,3 @@ def plot_traveltime(T, title="Travel Time T"):
 
 def plot_variance(VarT, title="Variance of T"):
     heatmap2d(VarT, title, cmap="magma")
-
-def plot_traveltime_variance_masked(VarT, mean_sdf, title="Variance of T (Free Space Only)"):
-    """
-    Mask variance inside obstacles (mean_sdf < 0).
-    This reveals small-scale variance in free space.
-    """
-
-    mask = mean_sdf < 0
-    VarT_masked = VarT.copy()
-    VarT_masked[mask] = np.nan   # obstacles invisible
-
-    plt.figure(figsize=(6, 6))
-    im = plt.imshow(VarT_masked.T, origin="lower", cmap="magma")
-    plt.colorbar(im)
-    plt.title(title)
-    plt.tight_layout()
-    plt.show()
-
-def plot_speedfield_variance_masked(var_S, mean_sdf, title="Variance of S* (Masked Obstacles)"):
-    """
-    Mask obstacles (mean_sdf < 0) so S* variance is only shown in free space.
-    """
-    masked = var_S.copy()
-    masked[mean_sdf < 0] = np.nan
-
-    plt.figure(figsize=(6, 6))
-    plt.imshow(masked.T, origin='lower', cmap="magma")
-    plt.colorbar()
-    plt.title(title)
-    plt.tight_layout()
-    plt.show()

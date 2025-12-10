@@ -55,8 +55,8 @@ def circle_sdf(nx, ny, cx, cy, r):
     """
     Analytic circle SDF: distance to circle centered at (cx,cy).
     """
-    x = np.linspace(-1, 1, nx)
-    y = np.linspace(-1, 1, ny)
+    x = np.linspace(-2.5, 2.5, nx)
+    y = np.linspace(-2.5, 2.5, ny)
     X, Y = np.meshgrid(x, y, indexing="ij")
     return np.sqrt((X - cx)**2 + (Y - cy)**2) - r
 
@@ -65,8 +65,8 @@ def box_sdf(nx, ny, cx, cy, half_w, half_h):
     """
     Axis-aligned box SDF centered at (cx, cy) with half widths.
     """
-    x = np.linspace(-1, 1, nx)
-    y = np.linspace(-1, 1, ny)
+    x = np.linspace(-2.5, 2.5, nx)
+    y = np.linspace(-2.5, 2.5, ny)
     X, Y = np.meshgrid(x, y, indexing="ij")
 
     # Signed distance to AABB
@@ -88,4 +88,4 @@ def add_boundary_uncertainty(sdf, scale=0.05):
     """
     Gaussian uncertainty concentrated around SDF=0 boundary.
     """
-    return scale * np.exp(-(np.abs(sdf) / 0.1)**2)
+    return scale * np.exp(-(np.abs(sdf) / 0.25)**2)

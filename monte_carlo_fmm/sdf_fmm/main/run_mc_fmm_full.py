@@ -5,11 +5,15 @@ sys.path.append(parent_dir)
 from sdf_gen.random_world import generate_world_with_uncertainty
 from core.speed_mapping import sdf_to_speed
 from core.mc_driver import monte_carlo_traveltime
+from core.mc_speedfield import monte_carlo_speedfield
 from viz.plot_fields import (
     plot_sdf_binary,
     plot_speed,
     plot_traveltime,
     plot_variance,
+    plot_traveltime_variance_masked,
+    heatmap2d,
+    plot_speedfield_variance_masked
 )
 
 
@@ -22,7 +26,7 @@ if __name__ == "__main__":
     nx, ny = 64, 64
 
     # Number of obstacles per world
-    n_obstacles = 3
+    n_obstacles = 1
 
     print(f"\n=== Generating world with {n_obstacles} obstacles ===\n")
 
@@ -37,9 +41,29 @@ if __name__ == "__main__":
     # Visualization of base SDF and speed from S*
     # ------------------------------------------------------
     plot_sdf_binary(mean_sdf, "Mean SDF (Multi-Obstacle World)")
-
+    sdf_variance = std_sdf**2
+    heatmap2d(sdf_variance, "Raw SDF Variance (std^2)", cmap="magma")
     speed_mean = sdf_to_speed(mean_sdf)
     plot_speed(speed_mean, "Speed Field S*(q) from Mean SDF")
+    
+    # ------------------------------------------------------
+    # Monte Carlo SPEED FIELD computation
+    # ------------------------------------------------------
+    num_samples = 50
+
+    print(f"\nRunning Monte Carlo for speed field S*(q) with {num_samples} samples...\n")
+
+    mean_S, var_S = monte_carlo_speedfield(
+        mean_sdf,
+        std_sdf,
+        num_samples=num_samples,
+        rng_seed=1
+    )
+
+    # Visualize mean & variance of S*
+    plot_speed(mean_S, "Monte Carlo Mean speed field E[S*]")
+    plot_variance(var_S, "Monte Carlo Variance Var[S*]")
+    plot_speedfield_variance_masked(var_S, mean_sdf, "Variance of S* (Masked Obstacles)")
 
     # ------------------------------------------------------
     # Monte Carlo FMM execution
@@ -67,6 +91,7 @@ if __name__ == "__main__":
     # ------------------------------------------------------
     plot_traveltime(mean_T2, "Mean Travel Time T(q)")
     plot_variance(var_T2, "Variance of Travel Time Var[T(q)]")
+    plot_traveltime_variance_masked(var_T2, mean_sdf, "Variance of T (Masked Obstacles)")
 
     print("\n=== Monte Carlo FMM Complete ===")
     print("Visualizations generated successfully.\n")
