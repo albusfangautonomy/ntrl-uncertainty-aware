@@ -1,18 +1,46 @@
+import torch
 import torch.nn as nn
 
-class ContextNet(nn.Module):
-    def __init__(self, u_dim, h_dim):
+class SafeFiLM(nn.Module):
+    def __init__(
+        self,
+        ctx_dim: int,
+        h_dim: int,
+        hidden: int = 128,
+        gamma_scale: float = 0.1,
+        beta_scale: float = 0.1,
+        detach_ctx: bool = True,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(u_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2 * h_dim)
+        self.detach_ctx = detach_ctx
+        self.gamma_scale = gamma_scale
+        self.beta_scale = beta_scale
+
+        self.ctx_net = nn.Sequential(
+            nn.Linear(ctx_dim, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, 2 * h_dim),
         )
 
-    def forward(self, u):
-        gamma, beta = self.net(u).chunk(2, dim=-1)
-        return gamma, beta
+        # Identity initialization
+        nn.init.zeros_(self.ctx_net[-1].weight)
+        nn.init.zeros_(self.ctx_net[-1].bias)
 
-class FiLM(nn.Module):
-    def forward(self, h, gamma, beta):
+    def forward(self, h, ctx):
+        """
+        h:   (N, h_dim)
+        ctx: (N, ctx_dim)
+        """
+        if ctx is None:
+            return h
+
+        if self.detach_ctx:
+            ctx = ctx.detach()
+
+        gb = self.ctx_net(ctx)
+        g_raw, b_raw = torch.chunk(gb, 2, dim=-1)
+
+        gamma = 1.0 + self.gamma_scale * torch.tanh(g_raw)
+        beta  = self.beta_scale  * torch.tanh(b_raw)
+
         return gamma * h + beta
