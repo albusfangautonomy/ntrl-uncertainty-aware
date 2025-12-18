@@ -15,7 +15,11 @@ import torch_kdtree #import build_kd_tree
 
 from torch_IK_UR5 import torch_IK_UR5, transformRobotParameter
 
-from functorch import vmap, jacfwd
+try:
+    from torch.func import vmap, jacfwd   # PyTorch ≥ 2.0
+except ImportError:
+    from functorch import vmap, jacfwd    # PyTorch ≤ 1.13
+
 
 def rot_pose(x, a, b, c):
 

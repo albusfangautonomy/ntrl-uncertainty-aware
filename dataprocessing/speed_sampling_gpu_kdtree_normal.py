@@ -6,7 +6,7 @@ import igl
 import traceback
 import math
 import torch
-import pytorch_kinematics as pk
+# import pytorch_kinematics as pk
 
 import math
 import matplotlib.pyplot as plt
