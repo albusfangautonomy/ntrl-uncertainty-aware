@@ -170,17 +170,36 @@ class Function():
         T = tau[:,0] #* torch.sqrt(T0)
         diff = loss0 + loss1 
 
-        normal_weight = 1e-3
+        # -------------------------------
+        # Mahalanobis normal constraint
+        # -------------------------------
 
-        normal0 = normal[:,:self.dim]
-        normal1 = normal[:,self.dim:]
-        #print(normal0)
-        #print(DT0)
-        n_loss0 = (1.001-Yobs[:,0].unsqueeze(1))*(Yobs[:,0].unsqueeze(1)*DT0+normal0)**2
-        n_loss1 = (1.001-Yobs[:,1].unsqueeze(1))*(Yobs[:,1].unsqueeze(1)*DT1+normal1)**2
-        #print(n_loss0.shape)
-        #n_loss = normal_weight*torch.sum(n_loss0,dim=1)
-        n_loss = normal_weight*(torch.sum(n_loss0,dim=1)+torch.sum(n_loss1,dim=1))
+        normal_weight = 1e-3
+        eps = 1e-6
+
+        normal0 = normal[:, :self.dim]
+        normal1 = normal[:, self.dim:]
+
+        # Residuals: r_i = Y_i * ∇τ + n_i
+        r0 = Yobs[:, 0].unsqueeze(1) * DT0 + normal0
+        r1 = Yobs[:, 1].unsqueeze(1) * DT1 + normal1
+
+        # Diagonal covariance (uncertainty-aware weighting)
+        # Low speed (near obstacle) → higher uncertainty
+        sigma0_sq = (1.001 - Yobs[:, 0]).unsqueeze(1)**2 + eps
+        sigma1_sq = (1.001 - Yobs[:, 1]).unsqueeze(1)**2 + eps
+
+        # Mahalanobis distance (diagonal Σ)
+        mah0 = torch.sum(r0**2 / sigma0_sq, dim=1)
+        mah1 = torch.sum(r1**2 / sigma1_sq, dim=1)
+
+        # Log-determinant term (Gaussian NLL)
+        logdet0 = torch.sum(torch.log(sigma0_sq), dim=1)
+        logdet1 = torch.sum(torch.log(sigma1_sq), dim=1)
+
+        # Final normal loss
+        n_loss = normal_weight * (mah0 + mah1 + logdet0 + logdet1)
+
         
         #print(n_loss0)
         #T_num = T.clone.detach()+weight
