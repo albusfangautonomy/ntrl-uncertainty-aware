@@ -54,6 +54,8 @@ class Function():
         limit = 0.5
         self.margin = limit/15.0
         self.offset = self.margin/10.0 
+        # self.networks = networks  # list of ensemble members
+
     
     def gradient(self, y, x, create_graph=True):                                                               
                                                                                   
@@ -62,9 +64,42 @@ class Function():
         grad_x = torch.autograd.grad(y, x, grad_y, only_inputs=True, retain_graph=True, create_graph=create_graph)[0]
         
         return grad_x                                                                                                    
-    
-    def Loss(self, points, Yobs, normal, beta, gamma, epoch):
-        
+    def out_and_grad_ensemble(self, points):
+        """
+        Returns:
+        tau_mean: (N,1)
+        dtau_mean: (N,2d)
+        dtau_var: (N,2d)   # elementwise variance across ensemble members (epistemic)
+        Xp_ref: (N,2d)     # coordinate tensor that requires grad (from first member)
+        """
+        taus = []
+        dtaus = []
+        Xp_ref = None
+
+        for m, net in enumerate(self.networks):
+            tau_m, w_m, Xp_m = net.out(points)
+            dtau_m = self.gradient(tau_m, Xp_m)
+
+            taus.append(tau_m)
+            dtaus.append(dtau_m)
+
+            if Xp_ref is None:
+                Xp_ref = Xp_m  # keep for downstream code (TD step etc.)
+
+        tau_stack = torch.stack(taus, dim=0)      # (M,N,1)
+        dtau_stack = torch.stack(dtaus, dim=0)    # (M,N,2d)
+
+        tau_mean = tau_stack.mean(dim=0)          # (N,1)
+        dtau_mean = dtau_stack.mean(dim=0)        # (N,2d)
+
+        # unbiased=False is fine; we just need a stable moment estimate
+        dtau_var = dtau_stack.var(dim=0, unbiased=False)  # (N,2d)
+
+        return tau_mean, dtau_mean, dtau_var, Xp_ref
+
+    # def Loss(self, points, Yobs, normal, beta, gamma, epoch):
+    def Loss(self, points, Yobs, Yvar, normal, normal_var, beta, gamma, epoch):
+
         start=time.time()
         tau, w, Xp = self.network.out(points)
         dtau = self.gradient(tau, Xp)
@@ -138,37 +173,40 @@ class Function():
         tau_loss1[where_d1] = 0 
 
         tau_loss = tau_loss0+tau_loss1
-        #'''
 
-        Ypred0 = torch.sqrt(S0+1e-8)#torch.sqrt
-        Ypred1 = torch.sqrt(S1+1e-8)#torch.sqrt
+        # -------------------------------
+        # Mahalanobis Eikonal constraint
+        # -------------------------------
 
+        eik_weight = 1e-2
+        eps = 1e-6
 
-        Ypred0_visco = Ypred0
-        Ypred1_visco = Ypred1
+        # Gradient magnitudes
+        gradnorm0 = torch.sqrt(S0 + eps)
+        gradnorm1 = torch.sqrt(S1 + eps)
 
-        sq_Ypred0 = (Ypred0_visco)#+gamma*lap0
-        sq_Ypred1 = (Ypred1_visco)#+gamma*lap1
+        # Eikonal residuals: ||∇τ|| - 1 / Y
+        eik_r0 = gradnorm0 - 1.0 / Yobs[:, 0]
+        eik_r1 = gradnorm1 - 1.0 / Yobs[:, 1]
 
+        # Variance via first-order propagation:
+        # Var(1/Y) ≈ (1 / Y^4) * Var(Y)
+        eik_var0 = (Yvar[:, 0] / (Yobs[:, 0]**4)).detach() + eps
+        eik_var1 = (Yvar[:, 1] / (Yobs[:, 1]**4)).detach() + eps
 
-        sq_Yobs0 = (Yobs[:,0])#**2
-        sq_Yobs1 = (Yobs[:,1])#**2
+        # Mahalanobis (Gaussian NLL, scalar)
+        eik_loss0 = eik_r0**2 / eik_var0 + torch.log(eik_var0)
+        eik_loss1 = eik_r1**2 / eik_var1 + torch.log(eik_var1)
 
-        #loss0 = (sq_Yobs0/sq_Ypred0+sq_Ypred0/sq_Yobs0)#**2#+gamma*lap0
-        #loss1 = (sq_Yobs1/sq_Ypred1+sq_Ypred1/sq_Yobs1)#**2#+gamma*lap1
-        l0 = ((sq_Yobs0*(sq_Ypred0)))
-        l1 = ((sq_Yobs1*(sq_Ypred1)))
-        
-        l0_2 = (torch.sqrt(l0))#**(1/4)
-        l1_2 = (torch.sqrt(l1))#**(1/4)    
+        # Optional spatial localization (same philosophy as normal loss)
+        boundary_w0 = (1.001 - Yobs[:, 0])
+        boundary_w1 = (1.001 - Yobs[:, 1])
 
-        #w_num = w.clone().detach()
-        loss_weight = 1e-2
-        loss0 = loss_weight*(l0_2-1)**2  #/scale#+relu_loss0#**2#+gamma*lap0#**2
-        loss1 = loss_weight*(l1_2-1)**2  #/scale#+relu_loss1#**2#+gamma*lap1#**2
-        
-        T = tau[:,0] #* torch.sqrt(T0)
-        diff = loss0 + loss1 
+        eik_loss = eik_weight * (
+            boundary_w0 * eik_loss0 +
+            boundary_w1 * eik_loss1
+        )
+
 
         # -------------------------------
         # Mahalanobis normal constraint
@@ -180,14 +218,22 @@ class Function():
         normal0 = normal[:, :self.dim]
         normal1 = normal[:, self.dim:]
 
+        normal_var0 = normal_var[:, :self.dim]
+        normal_var1 = normal_var[:, self.dim:]
+
+        Yvar0 = Yvar[:, 0].unsqueeze(1)
+        Yvar1 = Yvar[:, 1].unsqueeze(1)
+
         # Residuals: r_i = Y_i * ∇τ + n_i
         r0 = Yobs[:, 0].unsqueeze(1) * DT0 + normal0
         r1 = Yobs[:, 1].unsqueeze(1) * DT1 + normal1
 
         # Diagonal covariance (uncertainty-aware weighting)
         # Low speed (near obstacle) → higher uncertainty
-        sigma0_sq = (1.001 - Yobs[:, 0]).unsqueeze(1)**2 + eps
-        sigma1_sq = (1.001 - Yobs[:, 1]).unsqueeze(1)**2 + eps
+        sigma0_sq = (Yvar0 * (DT0**2) + normal_var0).detach() + eps
+        sigma1_sq = (Yvar1 * (DT1**2) + normal_var1).detach() + eps
+
+
 
         # Mahalanobis distance (diagonal Σ)
         mah0 = torch.sum(r0**2 / sigma0_sq, dim=1)
@@ -197,9 +243,16 @@ class Function():
         logdet0 = torch.sum(torch.log(sigma0_sq), dim=1)
         logdet1 = torch.sum(torch.log(sigma1_sq), dim=1)
 
-        # Final normal loss
-        n_loss = normal_weight * (mah0 + mah1 + logdet0 + logdet1)
+        # Spatial Weighting (Optional)
+        boundary_w0 = (1.001 - Yobs[:,0])
+        boundary_w1 = (1.001 - Yobs[:,1])
 
+        # Final normal loss
+        # n_loss = normal_weight * (mah0 + mah1 + logdet0 + logdet1)
+        n_loss = normal_weight * (
+            boundary_w0 * (mah0 + logdet0) +
+            boundary_w1 * (mah1 + logdet1)
+        )
         
         #print(n_loss0)
         #T_num = T.clone.detach()+weight
@@ -210,11 +263,11 @@ class Function():
         #print(T)
         para = 0.5#max(0.5-epoch*0.001,0.5)
         #
-        loss_n = (torch.sum((diff+n_loss +tau_loss)*torch.exp(-0.5*T)))/Yobs.shape[0]#*torch.exp(-para*T)
+        loss_n = (torch.sum((eik_loss+n_loss +tau_loss)*torch.exp(-0.5*T)))/Yobs.shape[0]#*torch.exp(-para*T)
         
         loss = beta*loss_n #+ 1e-4*(reg_tau)
         
-        return loss, loss_n, diff
+        return loss, loss_n, eik_loss
 
     def TravelTimes(self, Xp):
      
