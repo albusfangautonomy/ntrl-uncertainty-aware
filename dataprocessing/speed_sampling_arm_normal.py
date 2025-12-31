@@ -609,6 +609,34 @@ def point_rand_sample_bound_points(numsamples, dim,
     
     return sampled_points, speed, normal
 
+def apply_sensor_noise(sampled_points, speed, normal,
+                       alpha=0.01, beta=0.05, sigma_n=0.03):
+    """
+    Simulate sensor noise on speed (distance proxy) and normals.
+
+    World stays deterministic — only the measurements become noisy.
+    Returns noisy measurements + their variances.
+    """
+
+    # ---- speed (range-dependent Gaussian) ----
+    sigma_s = alpha + beta * np.abs(speed)
+    speed_meas = speed + np.random.normal(0, sigma_s)
+
+    # variance for Mahalanobis / probabilistic training
+    speed_var = sigma_s**2
+
+    # ---- normal noise (small tangent perturbation) ----
+    normal_noise = np.random.normal(0, sigma_n, size=normal.shape)
+    normal_meas = normal + normal_noise
+    normal_meas = normal_meas / np.linalg.norm(
+        normal_meas, axis=1, keepdims=True
+    )
+
+    # diagonal covariance (simple, stable)
+    normal_var = np.ones_like(normal) * (sigma_n**2)
+
+    return speed_meas, speed_var, normal_meas, normal_var
+
 def sample_speed(path, numsamples, dim):
     
     try:
@@ -669,6 +697,14 @@ def sample_speed(path, numsamples, dim):
         
         sampled_points, speed, normal = arm_rand_sample_bound_points(numsamples, dim, 
                                  v_obs, offset, margin)
+        
+        # --- simulate sensor noise ---
+        speed_meas, speed_var, normal_meas, normal_var = apply_sensor_noise(
+            sampled_points, speed, normal,
+            alpha=0.01,   # base speed noise
+            beta=0.05,    # noise grows with magnitude
+            sigma_n=0.03  # normal perturbation
+        )
         
         end = timer()
 
