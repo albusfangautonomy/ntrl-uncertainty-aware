@@ -18,7 +18,7 @@ from torch.utils.data.sampler import SubsetRandomSampler, WeightedRandomSampler
 #from EikoNet import database as db
 #from models import data_mlp as db
 import copy
-
+from  models.film import SafeFiLM
 import matplotlib
 import matplotlib.pylab as plt
 
@@ -94,42 +94,21 @@ class NN(torch.nn.Module):
         # -------------------------
         self.use_film = use_film
         if ctx_dim is None:
-            # ctx = [speed_mu(2), speed_var(2), normal_mu(2d), normal_var(2d)] => 4 + 4d
+            # ctx = [speed_mu(2), speed_var(2), normal_mu(2*dim), normal_var(2*dim)] => 4 + 4*dim
             ctx_dim = 4 + 4*self.dim
         self.ctx_dim = ctx_dim
 
         if self.use_film:
             hidden = 128
-            self.ctx_net = nn.Sequential(
-                nn.Linear(self.ctx_dim, hidden),
-                nn.SiLU(),
-                nn.Linear(hidden, 2*h_size),
+            
+            self.film = SafeFiLM(
+                ctx_dim=self.ctx_dim,
+                h_dim=h_size,
+                hidden=hidden,
+                gamma_scale=0.1,
+                beta_scale=0.1,
+                detach_ctx=True,
             )
-            # Initialize FiLM to identity: gamma ~ 1, beta ~ 0
-            nn.init.zeros_(self.ctx_net[-1].weight)
-            nn.init.zeros_(self.ctx_net[-1].bias)
-
-    def film(self, x, ctx):
-        """
-        x: (N, h_size)
-        ctx: (N, ctx_dim) or (2N, ctx_dim) depending on how we batch
-        Returns: FiLM-modulated x
-        """
-        if (ctx is None) or (not self.use_film):
-            return x
-
-        # Ensure ctx is not part of autograd graph w.r.t coords
-        ctx = ctx.detach()
-
-        gb = self.ctx_net(ctx)  # (N, 2*h_size)
-        g_raw, b_raw = torch.chunk(gb, 2, dim=-1)
-
-        # Safe parameterization:
-        # gamma in (1-0.1, 1+0.1), beta in (-0.1, 0.1)
-        gamma = 1.0 + 0.1 * torch.tanh(g_raw)
-        beta  = 0.1 * torch.tanh(b_raw)
-
-        return gamma * x + beta
 
     #'''
     def init_weights(self, m):
@@ -180,12 +159,12 @@ class NN(torch.nn.Module):
         # Expected ctx shape: (N, ctx_dim) corresponding to pairs (qs,qg)
         # We replicate it for x0 and x1 so both endpoints get the same conditioning.
         if self.use_film and (ctx is not None):
-            if ctx.dim() != 2:
-                raise ValueError(f"ctx must be 2D (N, ctx_dim). Got shape {tuple(ctx.shape)}")
-            if ctx.shape[0] != size:
-                raise ValueError(f"ctx batch {ctx.shape[0]} != coords batch {size}")
-            if ctx.shape[1] != self.ctx_dim:
-                raise ValueError(f"ctx dim {ctx.shape[1]} != expected {self.ctx_dim}")
+            # if ctx.dim() != 2:
+            #     raise ValueError(f"ctx must be 2D (N, ctx_dim). Got shape {tuple(ctx.shape)}")
+            # if ctx.shape[0] != size:
+            #     raise ValueError(f"ctx batch {ctx.shape[0]} != coords batch {size}")
+            # if ctx.shape[1] != self.ctx_dim:
+            #     raise ValueError(f"ctx dim {ctx.shape[1]} != expected {self.ctx_dim}")
             ctx_stacked = torch.vstack((ctx, ctx))  # (2N, ctx_dim)
             x = self.film(x, ctx_stacked)
 
