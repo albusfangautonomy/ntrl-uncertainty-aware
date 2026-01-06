@@ -1,24 +1,23 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  python_vnc_dev:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: python_vnc_container_dev
-    privileged: true
-    environment:
-      - DISPLAY=:1
-      - XDG_RUNTIME_DIR=/run/user/$(id -u)
-      - LIBGL_ALWAYS_SOFTWARE=1
-      - MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-      - DEBIAN_FRONTEND=noninteractive
-    volumes:
-
-      - ../:/workspace
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ~/.Xauthority:/root/.Xauthority:rw
-
-    stdin_open: true
+  ntrl-demo:
+    image: ntrl:demo
+    container_name: ntrl-demo
     tty: true
-    network_mode: host
+    stdin_open: true          # like -ti
+    user: "${UID}:${GID}"     # like -u $(id -u):$(id -g)
+    environment:
+      DISPLAY: "${DISPLAY}"
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /home/evb_dev/Albus/ntrl-demo-original:/workspace
+      - /usr/lib/x86_64-linux-gnu/:/glu
+      # - /home/n/.local:/.local
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]   # like --gpus all
+    restart: "no"                   # closest to --rm behavior
