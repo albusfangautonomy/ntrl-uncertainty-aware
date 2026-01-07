@@ -11,7 +11,7 @@ import torch
 import math
 import matplotlib.pyplot as plt
 from scipy.spatial import cKDTree
-
+from dataprocessing.monte_carlo_methods.mc_normal import mc_normal_stats
 # The original implementation relied on ``torch_kdtree`` which required manual
 # compilation.  We first switched to ``torch.cdist`` for simplicity, but that
 # scales quadratically with the number of points.  We now use SciPy's
@@ -202,19 +202,59 @@ def point_rand_sample_bound_points(numsamples, dim,
    
     X = torch.cat(X_list,0)[:numsamples]
     Y = torch.cat(Y_list,0)[:numsamples]
-    N = torch.cat(N_list,0)[:numsamples]
+    # N = torch.cat(N_list,0)[:numsamples]
 
     sampled_points = X.detach().cpu().numpy()
     distance = Y.detach().cpu().numpy()
-    normal = N.detach().cpu().numpy()
     
-    distance0 = distance[:,0] 
-    distance1 = distance[:,1] 
-    speed  = np.zeros((distance.shape[0],2))
-    speed[:,0] = np.clip(distance0/margin , a_min = offset/margin, a_max = 1)
-    speed[:,1] = np.clip(distance1/margin , a_min = offset/margin, a_max = 1)
+    # -------------------------------------------------------
+    # Monte-Carlo estimate of normal mean + variance
+    # -------------------------------------------------------
+    with torch.no_grad():
+        normal_mean_t, normal_var_t = mc_normal_stats(
+            X,          # (N, dim) query points
+            v_obs,      # obstacle samples
+            n_obs,      # obstacle normals
+            kdtree,     # baseline KD-tree
+            K=8,
+            sigma_geom=0.01
+        )
+
+    normal_mean = normal_mean_t.detach().cpu().numpy()
+    normal_var  = normal_var_t.detach().cpu().numpy()
+    # ----------------------------
+    # ---- deterministic case ----
+    # ----------------------------
+    # normal = N.detach().cpu().numpy()
+    # distance0 = distance[:,0] 
+    # distance1 = distance[:,1] 
+    # speed  = np.zeros((distance.shape[0],2))
+    # speed[:,0] = np.clip(distance0/margin , a_min = offset/margin, a_max = 1)
+    # speed[:,1] = np.clip(distance1/margin , a_min = offset/margin, a_max = 1)
     
-    return sampled_points, speed, normal
+    # return sampled_points, speed, normal
+    # ----------------------------
+    # ----------------------------
+    # ----------------------------
+
+    distance0 = distance[:,0]
+    distance1 = distance[:,1]
+
+    # ---- speed mean (same as before) ----
+    speed_mean = np.zeros((distance.shape[0], 2))
+    speed_mean[:,0] = np.clip(distance0/margin , a_min = offset/margin, a_max = 1)
+    speed_mean[:,1] = np.clip(distance1/margin , a_min = offset/margin, a_max = 1)
+
+    # ---- assume sensor-induced distance uncertainty ----
+    sigma_d = 0.01    # <--- choose reasonable value, tweak later
+
+    # ---- propagate to speed variance ----
+    speed_var = np.zeros((distance.shape[0], 2))
+    speed_var[:,0] = (sigma_d**2) / (margin**2)
+    speed_var[:,1] = (sigma_d**2) / (margin**2)
+
+    return sampled_points, speed_mean, speed_var, normal_mean, normal_var
+
 
 def sample_speed(path, numsamples, dim):
     
@@ -277,9 +317,17 @@ def sample_speed(path, numsamples, dim):
         n_obs = np.sum(bary[...,np.newaxis] * face_norms, axis=1)
 
         start = timer()
-        
-        sampled_points, speed, normal = point_rand_sample_bound_points(numsamples, dim, 
-                    v_obs, n_obs, offset, margin)
+        # ----------------------------
+        # ---- deterministic case ----
+        # ----------------------------
+        # sampled_points, speed, normal = point_rand_sample_bound_points(numsamples, dim, 
+        #             v_obs, n_obs, offset, margin)
+        # ----------------------------
+        # ----------------------------
+        # ----------------------------
+
+        sampled_points, speed_mean, speed_var, normal_mean, normal_var = point_rand_sample_bound_points(numsamples, dim, v_obs, n_obs, offset, margin)
+
 
         end = timer()
 
@@ -301,10 +349,24 @@ def sample_speed(path, numsamples, dim):
 
         B = np.random.normal(0, 1, size=(3, 128))
 
-        np.save('{}/sampled_points'.format(out_path),sampled_points)
-        np.save('{}/speed'.format(out_path),speed)
-        np.save('{}/normal'.format(out_path),normal)
-        np.save('{}/B'.format(out_path),B)
+        # ----------------------------
+        # ---- deterministic case ----
+        # ----------------------------
+        # np.save('{}/sampled_points'.format(out_path),sampled_points)
+        # np.save('{}/speed'.format(out_path),speed)
+        # np.save('{}/normal'.format(out_path),normal)
+        # np.save('{}/B'.format(out_path),B)
+        # ----------------------------
+        # ----------------------------
+        # ----------------------------
+
+        np.save(f'{out_path}/sampled_points', sampled_points)
+        np.save(f'{out_path}/speed_mean', speed_mean)
+        np.save(f'{out_path}/speed_var', speed_var)
+        np.save(f'{out_path}/normal_mean', normal_mean)
+        np.save(f'{out_path}/normal_var', normal_var)
+        np.save(f'{out_path}/B', B)
+
     except Exception as err:
         print('Error with {}: {}'.format(path, traceback.format_exc()))
     
