@@ -101,7 +101,18 @@ class Function():
     def Loss(self, points, Yobs, Yvar, normal, normal_var, beta, gamma, epoch):
 
         start=time.time()
-        tau, w, Xp = self.network.out(points)
+        # tau, w, Xp = self.network.out(points)
+        # -------- build FiLM context (N, ctx_dim) --------
+        ctx = torch.cat([
+            Yobs,       # (N, 2)
+            Yvar,       # (N, 2)
+            normal,     # (N, 2d)
+            normal_var  # (N, 2d)
+        ], dim=1)
+
+        # -------- forward pass with context --------
+        tau, w, Xp = self.network.out(points, ctx=ctx)
+        
         dtau = self.gradient(tau, Xp)
         end=time.time()
         
@@ -141,7 +152,7 @@ class Function():
             
             Xp_new0[:,:self.dim] = Xp_new0[:,:self.dim] - Dir0
 
-            tau_new0, w, Xp_new0 = self.network.out(Xp_new0)
+            tau_new0, w, Xp_new0 = self.network.out(Xp_new0, ctx=ctx)
             #tau_new1, w, Xp_new1 = self.network.out(Xp_new1)
             tau_new1 = length0#*1/Yobs[:,0].unsqueeze(1)
             del Xp_new0, Dir0#Xp_new1
@@ -160,7 +171,7 @@ class Function():
             Xp_new0[:,self.dim:] = Xp_new0[:,self.dim:] - Dir1
             #Xp_new[:,self.dim:]+=0.04*DT1/S1
 
-            tau_new0, w, Xp_new0 = self.network.out(Xp_new0)
+            tau_new0, w, Xp_new0 = self.network.out(Xp_new0, ctx=ctx)
             #tau_new1, w, Xp_new1 = self.network.out(Xp_new1)
             tau_new1 = length1#*1/Yobs[:,1].unsqueeze(1)
             del Xp_new0, Dir1#Xp_new1
@@ -253,7 +264,7 @@ class Function():
             boundary_w0 * (mah0 + logdet0) +
             boundary_w1 * (mah1 + logdet1)
         )
-        
+        T = tau[:,0]
         #print(n_loss0)
         #T_num = T.clone.detach()+weight
         #
