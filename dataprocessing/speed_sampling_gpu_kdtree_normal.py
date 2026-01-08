@@ -37,6 +37,16 @@ def mc_normal_stats(query_points,
         normal_mean : (N, dim) CUDA tensor (unit vectors)
         normal_var  : (N,)     CUDA tensor (angular dispersion)
     """
+    dim = query_points.shape[1]
+    # If 2D, pad to 3D (z = 0)
+    if dim == 2:
+        query_points = torch.cat(
+            [query_points, torch.zeros(query_points.shape[0], 1,
+                                       device=query_points.device,
+                                       dtype=query_points.dtype)],
+            dim=1
+        )
+
 
     normals_mc = []
 
@@ -65,6 +75,9 @@ def mc_normal_stats(query_points,
     cos_sim = (normals_mc * normal_mean.unsqueeze(0)).sum(dim=-1)   # (K, N)
     normal_var = (1 - cos_sim).mean(dim=0)                          # (N,)
 
+    # ---> If original was 2D, drop z
+    if dim == 2:
+        normal_mean = normal_mean[:, :2]
     return normal_mean, normal_var
 
 
